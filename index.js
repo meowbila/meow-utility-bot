@@ -48,6 +48,9 @@ const commands = [
       option.setName('amount')
         .setDescription('Number of messages to delete (1-100)')
         .setRequired(true))
+new SlashCommandBuilder()
+  .setName('ticketpanel')
+  .setDescription('Send the support ticket panel'),
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
