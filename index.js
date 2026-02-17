@@ -1,4 +1,16 @@
-const { Client, GatewayIntentBits, SlashCommandBuilder, Routes, REST, EmbedBuilder, PermissionsBitField } = require('discord.js');
+const { 
+  Client, 
+  GatewayIntentBits, 
+  SlashCommandBuilder, 
+  REST, 
+  Routes, 
+  EmbedBuilder,
+  ActionRowBuilder,
+  ButtonBuilder,
+  ButtonStyle,
+  PermissionsBitField,
+  ChannelType
+} = require('discord.js');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
