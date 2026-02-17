@@ -93,5 +93,25 @@ client.on('interactionCreate', async interaction => {
     await interaction.reply({ content: `Deleted ${amount} messages.`, ephemeral: true });
   }
 });
+// slash commands
+// interactionCreate handler
+// clear command logic
+// embed command logic
+
+// 👇 ADD NEW LISTENERS HERE
+client.on('messageCreate', async message => {
+  if (message.author.bot) return;
+
+  if (message.content.toLowerCase() === 'hello') {
+    message.reply('Hello there 👋');
+  }
+});
+
+client.on('guildMemberAdd', member => {
+  const channel = member.guild.systemChannel;
+  if (!channel) return;
+
+  channel.send(`Welcome ${member} 🎉`);
+});
 
 client.login(process.env.DISCORD_TOKEN);
