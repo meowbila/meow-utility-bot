@@ -13,7 +13,11 @@ const {
 } = require('discord.js');
 
 const client = new Client({
-  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages]
+  intents: [
+    GatewayIntentBits.Guilds, 
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent
+  ]
 });
 
 const commands = [
@@ -47,10 +51,12 @@ const commands = [
     .addIntegerOption(option =>
       option.setName('amount')
         .setDescription('Number of messages to delete (1-100)')
-        .setRequired(true))
-new SlashCommandBuilder()
-  .setName('ticketpanel')
-  .setDescription('Send the support ticket panel'),
+        .setRequired(true)),
+
+  new SlashCommandBuilder()
+    .setName('ticketpanel')
+    .setDescription('Send the support ticket panel')
+
 ].map(command => command.toJSON());
 
 client.once('ready', async () => {
@@ -70,50 +76,106 @@ client.once('ready', async () => {
 });
 
 client.on('interactionCreate', async interaction => {
-  if (!interaction.isChatInputCommand()) return;
 
-  if (interaction.commandName === 'ping') {
-    await interaction.reply('Pong!');
-  }
+  // Slash commands
+  if (interaction.isChatInputCommand()) {
 
-  if (interaction.commandName === 'say') {
-    const text = interaction.options.getString('text');
-    await interaction.reply(text);
-  }
-
-  if (interaction.commandName === 'embed') {
-    const title = interaction.options.getString('title');
-    const description = interaction.options.getString('description');
-
-    const embed = new EmbedBuilder()
-      .setTitle(title)
-      .setDescription(description)
-      .setColor(0x5865F2);
-
-    await interaction.reply({ embeds: [embed] });
-  }
-
-  if (interaction.commandName === 'clear') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-      return interaction.reply({ content: 'You need admin permissions to use this command.', ephemeral: true });
+    if (interaction.commandName === 'ping') {
+      return interaction.reply('Pong!');
     }
 
-    const amount = interaction.options.getInteger('amount');
-
-    if (amount < 1 || amount > 100) {
-      return interaction.reply({ content: 'Choose a number between 1 and 100.', ephemeral: true });
+    if (interaction.commandName === 'say') {
+      const text = interaction.options.getString('text');
+      return interaction.reply(text);
     }
 
-    await interaction.channel.bulkDelete(amount, true);
-    await interaction.reply({ content: `Deleted ${amount} messages.`, ephemeral: true });
+    if (interaction.commandName === 'embed') {
+      const title = interaction.options.getString('title');
+      const description = interaction.options.getString('description');
+
+      const embed = new EmbedBuilder()
+        .setTitle(title)
+        .setDescription(description)
+        .setColor(0x5865F2);
+
+      return interaction.reply({ embeds: [embed] });
+    }
+
+    if (interaction.commandName === 'clear') {
+      if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.reply({ content: 'Admin only command.', ephemeral: true });
+      }
+
+      const amount = interaction.options.getInteger('amount');
+
+      if (amount < 1 || amount > 100) {
+        return interaction.reply({ content: 'Choose between 1-100.', ephemeral: true });
+      }
+
+      await interaction.channel.bulkDelete(amount, true);
+      return interaction.reply({ content: `Deleted ${amount} messages.`, ephemeral: true });
+    }
+
+    if (interaction.commandName === 'ticketpanel') {
+
+      const embed = new EmbedBuilder()
+        .setTitle('Support Tickets')
+        .setDescription('Click the button below to open a ticket.')
+        .setColor(0x5865F2);
+
+      const button = new ButtonBuilder()
+        .setCustomId('create_ticket')
+        .setLabel('Open Ticket')
+        .setStyle(ButtonStyle.Primary);
+
+      const row = new ActionRowBuilder().addComponents(button);
+
+      return interaction.reply({ embeds: [embed], components: [row] });
+    }
+  }
+
+  // Button interactions
+  if (interaction.isButton()) {
+
+    if (interaction.customId === 'create_ticket') {
+
+      const channel = await interaction.guild.channels.create({
+        name: `ticket-${interaction.user.username}`,
+        type: ChannelType.GuildText,
+        permissionOverwrites: [
+          {
+            id: interaction.guild.id,
+            deny: ['ViewChannel']
+          },
+          {
+            id: interaction.user.id,
+            allow: ['ViewChannel', 'SendMessages']
+          }
+        ]
+      });
+
+      const closeButton = new ButtonBuilder()
+        .setCustomId('close_ticket')
+        .setLabel('Close Ticket')
+        .setStyle(ButtonStyle.Danger);
+
+      const row = new ActionRowBuilder().addComponents(closeButton);
+
+      await channel.send({
+        content: `Welcome ${interaction.user}`,
+        components: [row]
+      });
+
+      return interaction.reply({ content: `Ticket created: ${channel}`, ephemeral: true });
+    }
+
+    if (interaction.customId === 'close_ticket') {
+      await interaction.channel.delete();
+    }
   }
 });
-// slash commands
-// interactionCreate handler
-// clear command logic
-// embed command logic
 
-// 👇 ADD NEW LISTENERS HERE
+// Message listener
 client.on('messageCreate', async message => {
   if (message.author.bot) return;
 
@@ -122,6 +184,7 @@ client.on('messageCreate', async message => {
   }
 });
 
+// Welcome message
 client.on('guildMemberAdd', member => {
   const channel = member.guild.systemChannel;
   if (!channel) return;
