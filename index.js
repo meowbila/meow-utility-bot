@@ -210,46 +210,33 @@ client.on('interactionCreate', async interaction => {
     // CONFIRM CLOSE + TRANSCRIPT
     if (customId === 'confirm_close') {
 
-      await interaction.update({
-        content: "Saving transcript and closing ticket...",
-        components: []
-      });
+  await interaction.update({
+    content: "Saving transcript and closing ticket...",
+    components: []
+  });
 
-      const messages = await channel.messages.fetch({ limit: 100 });
+  const messages = await channel.messages.fetch({ limit: 100 });
 
-      const transcript = messages
-        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-        .map(m =>
-          `[${new Date(m.createdTimestamp).toLocaleString()}] ${m.author.tag}: ${m.content}`
-        )
-        .join('\n');
+  const transcript = messages
+    .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
+    .map(m =>
+      `[${new Date(m.createdTimestamp).toLocaleString()}] ${m.author.tag}: ${m.content}`
+    )
+    .join('\n');
 
-      const logChannel = guild.channels.cache.find(
-        c => c.name === "ticket-logs"
-      );
+  const logChannel = guild.channels.cache.get('1367210561288278056');
 
-      if (logChannel) {
-        await logChannel.send({
-          content: `Transcript for **${channel.name}**`,
-          files: [{
-            attachment: Buffer.from(transcript, 'utf-8'),
-            name: `transcript-${channel.name}.txt`
-          }]
-        });
-      }
-
-      setTimeout(() => channel.delete().catch(() => {}), 5000);
-    }
-
-    // CANCEL CLOSE
-    if (customId === 'cancel_close') {
-      return interaction.update({
-        content: "Ticket close cancelled.",
-        components: []
-      });
-    }
+  if (logChannel) {
+    await logChannel.send({
+      content: `Transcript for **${channel.name}**`,
+      files: [{
+        attachment: Buffer.from(transcript, 'utf-8'),
+        name: `transcript-${channel.name}.txt`
+      }]
+    });
   }
-});
 
+  setTimeout(() => channel.delete().catch(() => {}), 5000);
+}
 // =====================
 client.login(process.env.DISCORD_TOKEN);
