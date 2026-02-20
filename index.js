@@ -116,40 +116,39 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: `Deleted ${amount} messages.`, ephemeral: true });
     }
 
-    if (interaction.commandName === 'ticketpanel') {
-
-      const embed = new EmbedBuilder()
-        .setTitle('Support Tickets')
-        .setDescription('Click the button below to open a ticket.')
-        .setColor(0x5865F2);
-
-      const button = new ButtonBuilder()
-        .setCustomId('create_ticket')
-        .setLabel('Open Ticket')
-        .setStyle(ButtonStyle.Primary);
-
-      const row = new ActionRowBuilder().addComponents(button);
-
-      return interaction.reply({ embeds: [embed], components: [row] });
-    }
-  }
-
-  // Button interactions
+    // BUTTON INTERACTIONS
   if (interaction.isButton()) {
 
+    // =========================
+    // CREATE TICKET
+    // =========================
     if (interaction.customId === 'create_ticket') {
 
+      const existing = interaction.guild.channels.cache.find(
+        c => c.name === `ticket-${interaction.user.id}`
+      );
+
+      if (existing) {
+        return interaction.reply({
+          content: `You already have an open ticket: ${existing}`,
+          ephemeral: true
+        });
+      }
+
       const channel = await interaction.guild.channels.create({
-        name: `ticket-${interaction.user.username}`,
+        name: `ticket-${interaction.user.id}`,
         type: ChannelType.GuildText,
         permissionOverwrites: [
           {
             id: interaction.guild.id,
-            deny: ['ViewChannel']
+            deny: [PermissionsBitField.Flags.ViewChannel],
           },
           {
             id: interaction.user.id,
-            allow: ['ViewChannel', 'SendMessages']
+            allow: [
+              PermissionsBitField.Flags.ViewChannel,
+              PermissionsBitField.Flags.SendMessages
+            ],
           }
         ]
       });
@@ -162,34 +161,81 @@ client.on('interactionCreate', async interaction => {
       const row = new ActionRowBuilder().addComponents(closeButton);
 
       await channel.send({
-        content: `Welcome ${interaction.user}`,
+        content: `Welcome <@${interaction.user.id}> 👋\nDescribe your issue.`,
         components: [row]
       });
 
-      return interaction.reply({ content: `Ticket created: ${channel}`, ephemeral: true });
+      return interaction.reply({
+        content: `Ticket created: ${channel}`,
+        ephemeral: true
+      });
     }
 
+    // =========================
+    // ASK CONFIRM CLOSE
+    // =========================
     if (interaction.customId === 'close_ticket') {
-      await interaction.channel.delete();
+
+      const confirmButton = new ButtonBuilder()
+        .setCustomId('confirm_close')
+        .setLabel('Confirm Close')
+        .setStyle(ButtonStyle.Danger);
+
+      const cancelButton = new ButtonBuilder()
+        .setCustomId('cancel_close')
+        .setLabel('Cancel')
+        .setStyle(ButtonStyle.Secondary);
+
+      const row = new ActionRowBuilder().addComponents(confirmButton, cancelButton);
+
+      return interaction.reply({
+        content: "Are you sure you want to close this ticket?",
+        components: [row]
+      });
+    }
+
+    // =========================
+    // CONFIRM CLOSE
+    // =========================
+    if (interaction.customId === 'confirm_close') {
+
+      await interaction.reply("Saving transcript...");
+
+      const messages = await interaction.channel.messages.fetch({ limit: 100 });
+      const sorted = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+      let transcript = `Ticket Transcript - ${interaction.channel.name}\n\n`;
+
+      sorted.forEach(msg => {
+        transcript += `[${new Date(msg.createdTimestamp).toLocaleString()}] `;
+        transcript += `${msg.author.tag}: ${msg.content}\n`;
+      });
+
+      const buffer = Buffer.from(transcript, 'utf-8');
+
+      const logChannel = interaction.guild.channels.cache.find(
+        c => c.name === "ticket-logs"
+      );
+
+      if (logChannel) {
+        await logChannel.send({
+          content: `Transcript for ${interaction.channel.name}`,
+          files: [{ attachment: buffer, name: `${interaction.channel.name}.txt` }]
+        });
+      }
+
+      setTimeout(() => {
+        interaction.channel.delete().catch(() => {});
+      }, 5000);
+    }
+
+    // =========================
+    // CANCEL CLOSE
+    // =========================
+    if (interaction.customId === 'cancel_close') {
+      return interaction.update({
+        content: "Ticket close cancelled.",
+        components: []
+      });
     }
   }
-});
-
-// Message listener
-client.on('messageCreate', async message => {
-  if (message.author.bot) return;
-
-  if (message.content.toLowerCase() === 'hello') {
-    message.reply('Hello there 👋');
-  }
-});
-
-// Welcome message
-client.on('guildMemberAdd', member => {
-  const channel = member.guild.systemChannel;
-  if (!channel) return;
-
-  channel.send(`Welcome ${member} 🎉`);
-});
-
-client.login(process.env.DISCORD_TOKEN);
