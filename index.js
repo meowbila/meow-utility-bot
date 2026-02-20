@@ -1,83 +1,8 @@
-const { 
-  Client, 
-  GatewayIntentBits, 
-  SlashCommandBuilder, 
-  REST, 
-  Routes, 
-  EmbedBuilder,
-  ActionRowBuilder,
-  ButtonBuilder,
-  ButtonStyle,
-  PermissionsBitField,
-  ChannelType
-} = require('discord.js');
-
-const client = new Client({
-  intents: [
-    GatewayIntentBits.Guilds, 
-    GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
-  ]
-});
-
-const commands = [
-  new SlashCommandBuilder()
-    .setName('ping')
-    .setDescription('Replies with Pong!'),
-
-  new SlashCommandBuilder()
-    .setName('say')
-    .setDescription('Make the bot say something')
-    .addStringOption(option =>
-      option.setName('text')
-        .setDescription('What should I say?')
-        .setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('embed')
-    .setDescription('Send a styled embed message')
-    .addStringOption(option =>
-      option.setName('title')
-        .setDescription('Embed title')
-        .setRequired(true))
-    .addStringOption(option =>
-      option.setName('description')
-        .setDescription('Embed description')
-        .setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('clear')
-    .setDescription('Clear messages (Admin only)')
-    .addIntegerOption(option =>
-      option.setName('amount')
-        .setDescription('Number of messages to delete (1-100)')
-        .setRequired(true)),
-
-  new SlashCommandBuilder()
-    .setName('ticketpanel')
-    .setDescription('Send the support ticket panel')
-
-].map(command => command.toJSON());
-
-client.once('ready', async () => {
-  console.log(`Logged in as ${client.user.tag}`);
-
-  const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-
-  try {
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands }
-    );
-    console.log('Slash commands registered');
-  } catch (error) {
-    console.error(error);
-  }
-});
-
 client.on('interactionCreate', async interaction => {
 
-  // Slash commands
+  // =========================
+  // SLASH COMMANDS
+  // =========================
   if (interaction.isChatInputCommand()) {
 
     if (interaction.commandName === 'ping') {
@@ -116,12 +41,27 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: `Deleted ${amount} messages.`, ephemeral: true });
     }
 
-    // BUTTON INTERACTIONS
+    if (interaction.commandName === 'ticketpanel') {
+
+      const button = new ButtonBuilder()
+        .setCustomId('create_ticket')
+        .setLabel('Open Ticket')
+        .setStyle(ButtonStyle.Primary);
+
+      const row = new ActionRowBuilder().addComponents(button);
+
+      return interaction.reply({
+        content: "Click below to open a support ticket.",
+        components: [row]
+      });
+    }
+  }
+
+  // =========================
+  // BUTTON INTERACTIONS
+  // =========================
   if (interaction.isButton()) {
 
-    // =========================
-    // CREATE TICKET
-    // =========================
     if (interaction.customId === 'create_ticket') {
 
       const existing = interaction.guild.channels.cache.find(
@@ -161,7 +101,7 @@ client.on('interactionCreate', async interaction => {
       const row = new ActionRowBuilder().addComponents(closeButton);
 
       await channel.send({
-        content: `Welcome <@${interaction.user.id}> 👋\nDescribe your issue.`,
+        content: `Welcome <@${interaction.user.id}> 👋`,
         components: [row]
       });
 
@@ -171,9 +111,6 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // =========================
-    // ASK CONFIRM CLOSE
-    // =========================
     if (interaction.customId === 'close_ticket') {
 
       const confirmButton = new ButtonBuilder()
@@ -194,9 +131,6 @@ client.on('interactionCreate', async interaction => {
       });
     }
 
-    // =========================
-    // CONFIRM CLOSE
-    // =========================
     if (interaction.customId === 'confirm_close') {
 
       await interaction.reply("Saving transcript...");
@@ -229,9 +163,6 @@ client.on('interactionCreate', async interaction => {
       }, 5000);
     }
 
-    // =========================
-    // CANCEL CLOSE
-    // =========================
     if (interaction.customId === 'cancel_close') {
       return interaction.update({
         content: "Ticket close cancelled.",
@@ -239,3 +170,4 @@ client.on('interactionCreate', async interaction => {
       });
     }
   }
+});
