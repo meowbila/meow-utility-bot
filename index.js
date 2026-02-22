@@ -12,14 +12,25 @@ const {
   PermissionsBitField
 } = require('discord.js');
 
+const fs = require('fs');
+
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
-    GatewayIntentBits.MessageContent
+    GatewayIntentBits.MessageContent,
+    GatewayIntentBits.GuildVoiceStates
   ]
 });
 
+let config = {};
+if (fs.existsSync('./config.json')) {
+  config = JSON.parse(fs.readFileSync('./config.json'));
+}
+
+function saveConfig() {
+  fs.writeFileSync('./config.json', JSON.stringify(config, null, 2));
+}
 
 // =====================
 // SLASH COMMANDS
@@ -30,100 +41,94 @@ const commands = [
     .setDescription('Replies with Pong!'),
 
   new SlashCommandBuilder()
-    .setName('say')
-    .setDescription('Make the bot say something')
-    .addStringOption(option =>
-      option.setName('text')
-        .setDescription('What should I say?')
-        .setRequired(true)),
+    .setName('ticketsetup')
+    .setDescription('Setup the ticket system in this channel (Admin only)'),
 
   new SlashCommandBuilder()
-    .setName('embed')
-    .setDescription('Send a styled embed')
-    .addStringOption(option =>
-      option.setName('title')
-        .setDescription('Embed title')
-        .setRequired(true))
-    .addStringOption(option =>
-      option.setName('description')
-        .setDescription('Embed description')
-        .setRequired(true)),
+    .setName('ticket')
+    .setDescription('Send the ticket panel')
 
-  new SlashCommandBuilder()
-    .setName('clear')
-    .setDescription('Clear messages (Manage Messages required)')
-    .addIntegerOption(option =>
-      option.setName('amount')
-        .setDescription('1-100 messages')
-        .setRequired(true)),
+].map(c => c.toJSON());
 
-  new SlashCommandBuilder()
-    .setName('ticketpanel')
-    .setDescription('Send the support ticket panel')
-
-].map(command => command.toJSON());
-
-
-// =====================
-// REGISTER COMMANDS
-// =====================
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
 
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
-
-  try {
-    await rest.put(
-      Routes.applicationCommands(client.user.id),
-      { body: commands }
-    );
-    console.log('Slash commands registered');
-  } catch (error) {
-    console.error(error);
-  }
+  await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 });
-
 
 // =====================
 // INTERACTIONS
 // =====================
 client.on('interactionCreate', async interaction => {
 
-  // =====================
-  // SLASH COMMANDS
-  // =====================
+  if (!interaction.guild) return;
+
+  // ===== SLASH COMMANDS =====
   if (interaction.isChatInputCommand()) {
 
     if (interaction.commandName === 'ping')
       return interaction.reply('Pong! 🏓');
 
-    if (interaction.commandName === 'say')
-      return interaction.reply(interaction.options.getString('text'));
+    // =====================
+    // TICKET SETUP
+    // =====================
+    if (interaction.commandName === 'ticketsetup') {
 
-    if (interaction.commandName === 'embed') {
-      const embed = new EmbedBuilder()
-        .setTitle(interaction.options.getString('title'))
-        .setDescription(interaction.options.getString('description'))
-        .setColor(0x5865F2);
-
-      return interaction.reply({ embeds: [embed] });
-    }
-
-    if (interaction.commandName === 'clear') {
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.ManageMessages)) {
-        return interaction.reply({ content: 'You lack permissions.', ephemeral: true });
+      if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
+        return interaction.reply({ content: 'Admin only.', ephemeral: true });
       }
 
-      const amount = interaction.options.getInteger('amount');
-      if (amount < 1 || amount > 100) {
-        return interaction.reply({ content: '1-100 only.', ephemeral: true });
+      let logChannel = interaction.guild.channels.cache.find(c => c.name === 'ticket-logs');
+
+      if (!logChannel) {
+        logChannel = await interaction.guild.channels.create({
+          name: 'ticket-logs',
+          type: ChannelType.GuildText
+        });
       }
 
-      await interaction.channel.bulkDelete(amount, true);
-      return interaction.reply({ content: `Deleted ${amount} messages.`, ephemeral: true });
+      config[interaction.guild.id] = {
+        logChannel: logChannel.id,
+        ticketChannel: interaction.channel.id
+      };
+
+      saveConfig();
+
+      return interaction.reply({
+        content: `Ticket system configured.\nTicket Channel: ${interaction.channel}\nLogs: ${logChannel}`,
+        ephemeral: true
+      });
     }
 
-    if (interaction.commandName === 'ticketpanel') {
+    // =====================
+    // TICKET COMMAND
+    // =====================
+    if (interaction.commandName === 'ticket') {
+
+      const guildConfig = config[interaction.guild.id];
+
+      if (!guildConfig)
+        return interaction.reply({ content: "Run /ticketsetup first.", ephemeral: true });
+
+      if (interaction.channel.id !== guildConfig.ticketChannel)
+        return interaction.reply({ content: "Use this command in the ticket channel only.", ephemeral: true });
+
+      // Cooldown (10 seconds)
+      if (!client.ticketCooldowns) client.ticketCooldowns = new Map();
+
+      const now = Date.now();
+      const cooldown = 10000;
+
+      if (client.ticketCooldowns.has(interaction.user.id)) {
+        const expiration = client.ticketCooldowns.get(interaction.user.id) + cooldown;
+        if (now < expiration) {
+          return interaction.reply({ content: "Please wait before using this again.", ephemeral: true });
+        }
+      }
+
+      client.ticketCooldowns.set(interaction.user.id, now);
+
       const row = new ActionRowBuilder().addComponents(
         new ButtonBuilder()
           .setCustomId('create_ticket')
@@ -131,49 +136,42 @@ client.on('interactionCreate', async interaction => {
           .setStyle(ButtonStyle.Primary)
       );
 
-      return interaction.reply({
+      const reply = await interaction.reply({
         content: "Need help? Click below to open a ticket.",
-        components: [row]
+        components: [row],
+        fetchReply: true
       });
+
+      // Auto delete panel after 15s
+      setTimeout(() => reply.delete().catch(() => {}), 15000);
     }
   }
 
   // =====================
-  // BUTTONS
+  // BUTTON HANDLER
   // =====================
   if (interaction.isButton()) {
 
     const { customId, guild, user, channel } = interaction;
 
+    const guildConfig = config[guild.id];
+    if (!guildConfig) return;
+
+    const logChannel = guild.channels.cache.get(guildConfig.logChannel);
+
     // CREATE TICKET
     if (customId === 'create_ticket') {
 
-      const existing = guild.channels.cache.find(
-        c => c.name === `ticket-${user.id}`
-      );
-
-      if (existing) {
-        return interaction.reply({
-          content: `You already have a ticket: ${existing}`,
-          ephemeral: true
-        });
-      }
+      const existing = guild.channels.cache.find(c => c.name === `ticket-${user.id}`);
+      if (existing)
+        return interaction.reply({ content: `You already have a ticket: ${existing}`, ephemeral: true });
 
       const ticketChannel = await guild.channels.create({
         name: `ticket-${user.id}`,
         type: ChannelType.GuildText,
         permissionOverwrites: [
-          {
-            id: guild.id,
-            deny: [PermissionsBitField.Flags.ViewChannel]
-          },
-          {
-            id: user.id,
-            allow: [
-              PermissionsBitField.Flags.ViewChannel,
-              PermissionsBitField.Flags.SendMessages
-            ]
-          }
+          { id: guild.id, deny: [PermissionsBitField.Flags.ViewChannel] },
+          { id: user.id, allow: [PermissionsBitField.Flags.ViewChannel, PermissionsBitField.Flags.SendMessages] }
         ]
       });
 
@@ -184,77 +182,99 @@ client.on('interactionCreate', async interaction => {
           .setStyle(ButtonStyle.Danger)
       );
 
-      await ticketChannel.send({
-        content: `Welcome <@${user.id}> 👋`,
-        components: [row]
-      });
+      await ticketChannel.send({ content: `Welcome <@${user.id}> 👋`, components: [row] });
 
-      return interaction.reply({
-        content: `Ticket created: ${ticketChannel}`,
-        ephemeral: true
-      });
+      return interaction.reply({ content: `Ticket created: ${ticketChannel}`, ephemeral: true });
     }
 
-    // CLOSE REQUEST
+    // CLOSE TICKET
     if (customId === 'close_ticket') {
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('confirm_close')
-          .setLabel('Yes, Close')
-          .setStyle(ButtonStyle.Danger),
-        new ButtonBuilder()
-          .setCustomId('cancel_close')
-          .setLabel('Cancel')
-          .setStyle(ButtonStyle.Secondary)
-      );
 
-      return interaction.reply({
-        content: "Are you sure you want to close this ticket?",
-        components: [row]
+      await interaction.update({ content: "Generating transcript...", components: [] });
+
+      let allMessages = [];
+      let lastId;
+
+      while (true) {
+        const options = { limit: 100 };
+        if (lastId) options.before = lastId;
+
+        const messages = await channel.messages.fetch(options);
+        if (messages.size === 0) break;
+
+        allMessages.push(...messages.values());
+        lastId = messages.last().id;
+      }
+
+      allMessages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+
+      let transcript = `Ticket: ${channel.name}\nClosed by: ${user.tag}\n\n`;
+
+      const participants = new Map();
+      for (const msg of allMessages) {
+        if (!msg.author.bot) {
+          participants.set(msg.author.tag, (participants.get(msg.author.tag) || 0) + 1);
+        }
+      }
+
+      transcript += "Participants:\n";
+      participants.forEach((count, tag) => {
+        transcript += `- ${tag} (${count} messages)\n`;
       });
-    }
 
-    // CONFIRM CLOSE
-    if (customId === 'confirm_close') {
+      transcript += "\n============================\n\n";
 
-      await interaction.update({
-        content: "Saving transcript and closing ticket...",
-        components: []
-      });
-
-      const messages = await channel.messages.fetch({ limit: 100 });
-
-      const transcript = messages
-        .sort((a, b) => a.createdTimestamp - b.createdTimestamp)
-        .map(m =>
-          `[${new Date(m.createdTimestamp).toLocaleString()}] ${m.author.tag}: ${m.content}`
-        )
-        .join('\n');
-
-      const logChannel = guild.channels.cache.get('1367210561288278056');
+      for (const msg of allMessages) {
+        transcript += `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}\n`;
+      }
 
       if (logChannel) {
         await logChannel.send({
-          content: `Transcript for **${channel.name}**`,
-          files: [{
-            attachment: Buffer.from(transcript, 'utf-8'),
-            name: `transcript-${channel.name}.txt`
-          }]
+          content: `Transcript for ${channel.name}`,
+          files: [{ attachment: Buffer.from(transcript), name: `transcript-${channel.name}.txt` }]
         });
       }
 
       setTimeout(() => channel.delete().catch(() => {}), 5000);
     }
-
-    // CANCEL CLOSE
-    if (customId === 'cancel_close') {
-      return interaction.update({
-        content: "Ticket close cancelled.",
-        components: []
-      });
-    }
   }
 });
 
 // =====================
+// MESSAGE DELETE LOG
+// =====================
+client.on('messageDelete', message => {
+  if (!message.guild) return;
+  const guildConfig = config[message.guild.id];
+  if (!guildConfig) return;
+
+  const logChannel = message.guild.channels.cache.get(guildConfig.logChannel);
+  if (!logChannel) return;
+
+  logChannel.send(`🗑 ${message.author?.tag} deleted message in #${message.channel.name}: ${message.content}`);
+});
+
+// =====================
+// VOICE LOG
+// =====================
+client.on('voiceStateUpdate', (oldState, newState) => {
+  if (!newState.guild) return;
+  const guildConfig = config[newState.guild.id];
+  if (!guildConfig) return;
+
+  const logChannel = newState.guild.channels.cache.get(guildConfig.logChannel);
+  if (!logChannel) return;
+
+  const member = newState.member;
+
+  if (!oldState.channel && newState.channel)
+    logChannel.send(`🎤 ${member.user.tag} joined ${newState.channel.name}`);
+
+  if (oldState.channel && !newState.channel)
+    logChannel.send(`📤 ${member.user.tag} left ${oldState.channel.name}`);
+
+  if (oldState.channel && newState.channel && oldState.channel.id !== newState.channel.id)
+    logChannel.send(`🔁 ${member.user.tag} moved ${oldState.channel.name} → ${newState.channel.name}`);
+});
+
 client.login(process.env.DISCORD_TOKEN);
