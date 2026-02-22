@@ -35,37 +35,57 @@ function saveConfig() {
   fs.writeFileSync('./config.json', JSON.stringify(config, null, 2));
 }
 
-// =====================
-// SLASH COMMANDS
-// =====================
+/* =========================
+   SLASH COMMANDS
+========================= */
+
 const commands = [
-  new SlashCommandBuilder().setName('ticket').setDescription('Send ticket panel'),
 
-  new SlashCommandBuilder().setName('setlog').setDescription('Set moderation log channel (Admin only)'),
-  new SlashCommandBuilder().setName('undolog').setDescription('Undo moderation log channel (Admin only)'),
+  new SlashCommandBuilder()
+    .setName('ticket')
+    .setDescription('Send ticket panel'),
 
-  new SlashCommandBuilder().setName('setticketlog').setDescription('Set ticket transcript log channel (Admin only)'),
-  new SlashCommandBuilder().setName('undoticketlog').setDescription('Undo ticket transcript log channel (Admin only)'),
+  new SlashCommandBuilder()
+    .setName('setlog')
+    .setDescription('Set moderation log channel'),
+
+  new SlashCommandBuilder()
+    .setName('undolog')
+    .setDescription('Remove moderation log channel'),
+
+  new SlashCommandBuilder()
+    .setName('setticketlog')
+    .setDescription('Set ticket transcript log channel'),
+
+  new SlashCommandBuilder()
+    .setName('undoticketlog')
+    .setDescription('Remove ticket transcript log channel'),
 
   new SlashCommandBuilder()
     .setName('afk')
     .setDescription('Set global AFK')
     .addStringOption(o =>
-      o.setName('reason').setDescription('Reason').setRequired(false)
+      o.setName('reason')
+        .setDescription('Reason')
+        .setRequired(false)
     ),
 
   new SlashCommandBuilder()
     .setName('banner')
     .setDescription('Get user banner')
     .addUserOption(o =>
-      o.setName('user').setDescription('Select user').setRequired(false)
+      o.setName('user')
+        .setDescription('Select user')
+        .setRequired(false)
     ),
 
   new SlashCommandBuilder()
     .setName('userinfo')
     .setDescription('Get user info')
     .addUserOption(o =>
-      o.setName('user').setDescription('Select user').setRequired(false)
+      o.setName('user')
+        .setDescription('Select user')
+        .setRequired(false)
     ),
 
   new SlashCommandBuilder()
@@ -80,70 +100,57 @@ client.once('ready', async () => {
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 });
 
-// =====================
-// INTERACTION HANDLER
-// =====================
+/* =========================
+   INTERACTION HANDLER
+========================= */
+
 client.on('interactionCreate', async interaction => {
   if (!interaction.guild) return;
 
   if (!config[interaction.guild.id])
     config[interaction.guild.id] = {};
 
-  // ---------------------
-  // SET MOD LOG
-  // ---------------------
+  // -------- SET MOD LOG --------
   if (interaction.commandName === 'setlog') {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
       return interaction.reply({ content: 'Admin only.', ephemeral: true });
 
     config[interaction.guild.id].modLogChannel = interaction.channel.id;
     saveConfig();
-
-    return interaction.reply({ content: `Moderation log set to ${interaction.channel}`, ephemeral: true });
+    return interaction.reply({ content: `Log set to ${interaction.channel}`, ephemeral: true });
   }
 
-  // ---------------------
-  // UNDO MOD LOG
-  // ---------------------
+  // -------- UNDO MOD LOG --------
   if (interaction.commandName === 'undolog') {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
       return interaction.reply({ content: 'Admin only.', ephemeral: true });
 
     delete config[interaction.guild.id].modLogChannel;
     saveConfig();
-
-    return interaction.reply({ content: `Moderation log removed.`, ephemeral: true });
+    return interaction.reply({ content: 'Log removed.', ephemeral: true });
   }
 
-  // ---------------------
-  // SET TICKET LOG
-  // ---------------------
+  // -------- SET TICKET LOG --------
   if (interaction.commandName === 'setticketlog') {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
       return interaction.reply({ content: 'Admin only.', ephemeral: true });
 
     config[interaction.guild.id].ticketLogChannel = interaction.channel.id;
     saveConfig();
-
     return interaction.reply({ content: `Ticket log set to ${interaction.channel}`, ephemeral: true });
   }
 
-  // ---------------------
-  // UNDO TICKET LOG
-  // ---------------------
+  // -------- UNDO TICKET LOG --------
   if (interaction.commandName === 'undoticketlog') {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
       return interaction.reply({ content: 'Admin only.', ephemeral: true });
 
     delete config[interaction.guild.id].ticketLogChannel;
     saveConfig();
-
-    return interaction.reply({ content: `Ticket log removed.`, ephemeral: true });
+    return interaction.reply({ content: 'Ticket log removed.', ephemeral: true });
   }
 
-  // ---------------------
-  // AFK
-  // ---------------------
+  // -------- AFK --------
   if (interaction.commandName === 'afk') {
     const reason = interaction.options.getString('reason') || 'AFK';
 
@@ -153,13 +160,10 @@ client.on('interactionCreate', async interaction => {
     };
 
     saveConfig();
-
-    return interaction.reply({ content: `You are now globally AFK: ${reason}`, ephemeral: true });
+    return interaction.reply({ content: `You are now AFK: ${reason}`, ephemeral: true });
   }
 
-  // ---------------------
-  // BANNER
-  // ---------------------
+  // -------- BANNER --------
   if (interaction.commandName === 'banner') {
     const user = interaction.options.getUser('user') || interaction.user;
     const fetched = await client.users.fetch(user.id, { force: true });
@@ -169,15 +173,13 @@ client.on('interactionCreate', async interaction => {
 
     const embed = new EmbedBuilder()
       .setTitle(`${user.tag}'s Banner`)
-      .setImage(fetched.bannerURL({ size: 1024, dynamic: true }))
+      .setImage(fetched.bannerURL({ dynamic: true, size: 1024 }))
       .setColor(0x5865F2);
 
     return interaction.reply({ embeds: [embed] });
   }
 
-  // ---------------------
-  // USER INFO
-  // ---------------------
+  // -------- USER INFO --------
   if (interaction.commandName === 'userinfo') {
     const member = interaction.options.getMember('user') || interaction.member;
 
@@ -186,18 +188,15 @@ client.on('interactionCreate', async interaction => {
       .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
       .addFields(
         { name: 'User ID', value: member.user.id, inline: true },
-        { name: 'Joined', value: `<t:${Math.floor(member.joinedTimestamp/1000)}:R>`, inline: true },
-        { name: 'Account Created', value: `<t:${Math.floor(member.user.createdTimestamp/1000)}:R>`, inline: true },
-        { name: 'Roles', value: member.roles.cache.map(r => r.name).join(', ').slice(0, 1024) }
+        { name: 'Joined Server', value: `<t:${Math.floor(member.joinedTimestamp/1000)}:R>`, inline: true },
+        { name: 'Account Created', value: `<t:${Math.floor(member.user.createdTimestamp/1000)}:R>`, inline: true }
       )
       .setColor(0x5865F2);
 
     return interaction.reply({ embeds: [embed] });
   }
 
-  // ---------------------
-  // SERVER INFO
-  // ---------------------
+  // -------- SERVER INFO --------
   if (interaction.commandName === 'serverinfo') {
     const guild = interaction.guild;
 
@@ -206,18 +205,15 @@ client.on('interactionCreate', async interaction => {
       .setThumbnail(guild.iconURL({ dynamic: true }))
       .addFields(
         { name: 'Server ID', value: guild.id, inline: true },
-        { name: 'Owner', value: `<@${guild.ownerId}>`, inline: true },
         { name: 'Members', value: `${guild.memberCount}`, inline: true },
-        { name: 'Created', value: `<t:${Math.floor(guild.createdTimestamp/1000)}:R>` }
+        { name: 'Owner', value: `<@${guild.ownerId}>`, inline: true }
       )
       .setColor(0x5865F2);
 
     return interaction.reply({ embeds: [embed] });
   }
 
-  // ---------------------
-  // TICKET PANEL
-  // ---------------------
+  // -------- TICKET PANEL --------
   if (interaction.commandName === 'ticket') {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
@@ -226,12 +222,10 @@ client.on('interactionCreate', async interaction => {
         .setStyle(ButtonStyle.Primary)
     );
 
-    return interaction.reply({ content: "Need help? Click below.", components: [row] });
+    return interaction.reply({ content: 'Click below to open a ticket.', components: [row] });
   }
 
-  // ---------------------
-  // BUTTON HANDLER
-  // ---------------------
+  // -------- BUTTONS --------
   if (interaction.isButton()) {
 
     const { customId, guild, user, channel } = interaction;
@@ -258,14 +252,15 @@ client.on('interactionCreate', async interaction => {
     }
 
     if (customId === 'close_ticket') {
-      await interaction.update({ content: "Generating transcript...", components: [] });
 
-      let messages = await channel.messages.fetch({ limit: 100 });
-      messages = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
+      await interaction.update({ content: 'Generating transcript...', components: [] });
+
+      const messages = await channel.messages.fetch({ limit: 100 });
+      const sorted = messages.sort((a, b) => a.createdTimestamp - b.createdTimestamp);
 
       let transcript = `Ticket: ${channel.name}\nClosed by: ${user.tag}\n\n`;
 
-      messages.forEach(msg => {
+      sorted.forEach(msg => {
         transcript += `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}\n`;
       });
 
@@ -281,16 +276,17 @@ client.on('interactionCreate', async interaction => {
   }
 });
 
-// =====================
-// AFK MESSAGE HANDLER
-// =====================
+/* =========================
+   AFK MESSAGE CHECK
+========================= */
+
 client.on('messageCreate', message => {
   if (!message.guild || message.author.bot) return;
 
   if (config.globalAFK[message.author.id]) {
     delete config.globalAFK[message.author.id];
     saveConfig();
-    message.reply("Welcome back! Your AFK has been removed.");
+    message.reply('Welcome back! AFK removed.');
   }
 
   message.mentions.users.forEach(user => {
@@ -300,30 +296,52 @@ client.on('messageCreate', message => {
   });
 });
 
-// =====================
-// MODERATION LOGS
-// =====================
+/* =========================
+   MOD LOGS
+========================= */
+
 function getModLogChannel(guild) {
   if (!config[guild.id]?.modLogChannel) return null;
   return guild.channels.cache.get(config[guild.id].modLogChannel);
 }
 
+// Message Delete
 client.on('messageDelete', message => {
   if (!message.guild || message.author?.bot) return;
   const log = getModLogChannel(message.guild);
   if (!log) return;
 
-  const embed = new EmbedBuilder()
-    .setTitle('Message Deleted')
-    .setColor(0xff0000)
-    .addFields(
-      { name: 'User', value: message.author.tag, inline: true },
-      { name: 'Channel', value: `#${message.channel.name}`, inline: true },
-      { name: 'Content', value: message.content || 'None' }
-    )
-    .setTimestamp();
+  log.send(`Message deleted by ${message.author.tag} in #${message.channel.name}\nContent: ${message.content || 'None'}`);
+});
 
-  log.send({ embeds: [embed] });
+// Message Edit
+client.on('messageUpdate', (oldMsg, newMsg) => {
+  if (!oldMsg.guild || oldMsg.author?.bot) return;
+  if (oldMsg.content === newMsg.content) return;
+
+  const log = getModLogChannel(oldMsg.guild);
+  if (!log) return;
+
+  log.send(`Message edited by ${oldMsg.author.tag}\nBefore: ${oldMsg.content}\nAfter: ${newMsg.content}`);
+});
+
+// Voice Logs
+client.on('voiceStateUpdate', (oldState, newState) => {
+
+  const log = getModLogChannel(newState.guild);
+  if (!log) return;
+
+  const member = newState.member;
+  if (!member) return;
+
+  if (!oldState.channel && newState.channel)
+    log.send(`${member.user.tag} joined VC: ${newState.channel.name}`);
+
+  if (oldState.channel && !newState.channel)
+    log.send(`${member.user.tag} left VC: ${oldState.channel.name}`);
+
+  if (oldState.channel && newState.channel && oldState.channel.id !== newState.channel.id)
+    log.send(`${member.user.tag} moved VC: ${oldState.channel.name} → ${newState.channel.name}`);
 });
 
 client.login(process.env.DISCORD_TOKEN);
