@@ -164,20 +164,42 @@ client.on('interactionCreate', async interaction => {
   /* ----- USER INFO ----- */
 
   if (interaction.commandName === 'userinfo') {
-    const member = interaction.options.getMember('user') || interaction.member;
 
-    const embed = new EmbedBuilder()
-      .setTitle(member.user.tag)
-      .setThumbnail(member.user.displayAvatarURL({ dynamic: true }))
-      .addFields(
-        { name: 'User ID', value: member.user.id, inline: true },
-        { name: 'Joined Server', value: `<t:${Math.floor(member.joinedTimestamp/1000)}:R>`, inline: true },
-        { name: 'Account Created', value: `<t:${Math.floor(member.user.createdTimestamp/1000)}:R>`, inline: true }
-      )
-      .setColor(0x5865F2);
+  const member = interaction.options.getMember('user') || interaction.member;
+  const user = member.user;
 
-    return interaction.reply({ embeds: [embed] });
-  }
+  const roles = member.roles.cache
+    .filter(r => r.id !== interaction.guild.id)
+    .map(r => r.name)
+    .slice(0, 5)
+    .join(' • ') || 'No roles';
+
+  const embed = new EmbedBuilder()
+    .setColor(member.displayHexColor === '#000000' ? 0x2b2d31 : member.displayHexColor)
+    .setAuthor({
+      name: user.tag,
+      iconURL: user.displayAvatarURL({ dynamic: true })
+    })
+    .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 512 }))
+    .addFields(
+      {
+        name: 'User',
+        value: `ID: \`${user.id}\`\nCreated: <t:${Math.floor(user.createdTimestamp/1000)}:R>`,
+        inline: false
+      },
+      {
+        name: 'Server',
+        value: `Joined: <t:${Math.floor(member.joinedTimestamp/1000)}:R>\nRoles: ${roles}`,
+        inline: false
+      }
+    )
+    .setFooter({
+      text: `Requested by ${interaction.user.username}`
+    })
+    .setTimestamp();
+
+  return interaction.reply({ embeds: [embed] });
+}
 
   /* ----- SERVER INFO ----- */
 
