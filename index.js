@@ -135,38 +135,48 @@ client.on('interactionCreate', async interaction => {
 
   if (interaction.commandName === 'userinfo') {
 
-    const member = interaction.options.getMember('user') || interaction.member;
-    const user = member.user;
+  const member = interaction.options.getMember('user') || interaction.member;
+  const user = await client.users.fetch(member.id, { force: true });
 
-    const embed = new EmbedBuilder()
-      .setColor(member.displayHexColor === '#000000' ? 0x2b2d31 : member.displayHexColor)
-      .setAuthor({
-        name: user.tag,
-        iconURL: user.displayAvatarURL({ dynamic: true })
-      })
-      .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 512 }))
-      .setImage(user.bannerURL({ size: 1024 }) || null)
-      .addFields(
-        {
-          name: 'User',
-          value: `ID: \`${user.id}\`\nCreated: <t:${Math.floor(user.createdTimestamp/1000)}:R>`
-        },
-        {
-          name: 'Server',
-          value: `Joined: <t:${Math.floor(member.joinedTimestamp/1000)}:R>\nHighest Role: ${member.roles.highest}`
-        }
-      )
-      .setTimestamp();
+  const bannerURL = user.bannerURL({ size: 1024, dynamic: true });
 
-    const row = new ActionRowBuilder().addComponents(
-      new ButtonBuilder()
-        .setCustomId(`view_perms_${member.id}`)
-        .setLabel('View Permissions')
-        .setStyle(ButtonStyle.Secondary)
-    );
+  const embed = new EmbedBuilder()
+    .setColor(member.displayHexColor === '#000000' ? 0x2b2d31 : member.displayHexColor)
+    .setAuthor({
+      name: user.tag,
+      iconURL: user.displayAvatarURL({ dynamic: true })
+    })
+    .setThumbnail(user.displayAvatarURL({ dynamic: true, size: 512 }))
+    .addFields(
+      {
+        name: 'User',
+        value: `ID: \`${user.id}\`\nCreated: <t:${Math.floor(user.createdTimestamp/1000)}:R>`
+      },
+      {
+        name: 'Server',
+        value: `Joined: <t:${Math.floor(member.joinedTimestamp/1000)}:R>\nHighest Role: ${member.roles.highest}`
+      }
+    )
+    .setTimestamp();
 
-    return interaction.reply({ embeds: [embed], components: [row] });
+  if (bannerURL) {
+    embed.setImage(bannerURL);
+  } else {
+    embed.addFields({
+      name: 'Banner',
+      value: 'No banner set'
+    });
   }
+
+  const row = new ActionRowBuilder().addComponents(
+    new ButtonBuilder()
+      .setCustomId(`view_perms_${member.id}`)
+      .setLabel('View Permissions')
+      .setStyle(ButtonStyle.Secondary)
+  );
+
+  return interaction.reply({ embeds: [embed], components: [row] });
+}
 
   /* ===== PERMISSION TOGGLE ===== */
 
