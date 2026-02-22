@@ -9,7 +9,8 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
-  PermissionsBitField
+  PermissionsBitField,
+  AuditLogEvent
 } = require('discord.js');
 
 const fs = require('fs');
@@ -19,7 +20,8 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates
+    GatewayIntentBits.GuildVoiceStates,
+    GatewayIntentBits.GuildMembers
   ]
 });
 
@@ -37,22 +39,20 @@ function saveConfig() {
 // =====================
 const commands = [
   new SlashCommandBuilder()
-    .setName('ping')
-    .setDescription('Replies with Pong!'),
-
-  new SlashCommandBuilder()
-    .setName('ticketsetup')
-    .setDescription('Setup the ticket system in this channel (Admin only)'),
-
-  new SlashCommandBuilder()
     .setName('ticket')
-    .setDescription('Send the ticket panel')
+    .setDescription('Send ticket panel'),
 
+  new SlashCommandBuilder()
+    .setName('setticketlog')
+    .setDescription('Set ticket transcript log channel (Admin only)'),
+
+  new SlashCommandBuilder()
+    .setName('setlog')
+    .setDescription('Set moderation log channel (Admin only)')
 ].map(c => c.toJSON());
 
 client.once('ready', async () => {
   console.log(`Logged in as ${client.user.tag}`);
-
   const rest = new REST({ version: '10' }).setToken(process.env.DISCORD_TOKEN);
   await rest.put(Routes.applicationCommands(client.user.id), { body: commands });
 });
@@ -61,103 +61,67 @@ client.once('ready', async () => {
 // INTERACTIONS
 // =====================
 client.on('interactionCreate', async interaction => {
-
   if (!interaction.guild) return;
 
-  // ===== SLASH COMMANDS =====
-  if (interaction.isChatInputCommand()) {
+  if (!config[interaction.guild.id])
+    config[interaction.guild.id] = {};
 
-    if (interaction.commandName === 'ping')
-      return interaction.reply('Pong! 🏓');
+  // =====================
+  // SET TICKET LOG
+  // =====================
+  if (interaction.commandName === 'setticketlog') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+      return interaction.reply({ content: 'Admin only.', ephemeral: true });
 
-    // =====================
-    // TICKET SETUP
-    // =====================
-    if (interaction.commandName === 'ticketsetup') {
+    config[interaction.guild.id].ticketLogChannel = interaction.channel.id;
+    saveConfig();
 
-      if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator)) {
-        return interaction.reply({ content: 'Admin only.', ephemeral: true });
-      }
-
-      let logChannel = interaction.guild.channels.cache.find(c => c.name === 'ticket-logs');
-
-      if (!logChannel) {
-        logChannel = await interaction.guild.channels.create({
-          name: 'ticket-logs',
-          type: ChannelType.GuildText
-        });
-      }
-
-      config[interaction.guild.id] = {
-        logChannel: logChannel.id,
-        ticketChannel: interaction.channel.id
-      };
-
-      saveConfig();
-
-      return interaction.reply({
-        content: `Ticket system configured.\nTicket Channel: ${interaction.channel}\nLogs: ${logChannel}`,
-        ephemeral: true
-      });
-    }
-
-    // =====================
-    // TICKET COMMAND
-    // =====================
-    if (interaction.commandName === 'ticket') {
-
-      const guildConfig = config[interaction.guild.id];
-
-      if (!guildConfig)
-        return interaction.reply({ content: "Run /ticketsetup first.", ephemeral: true });
-
-      if (interaction.channel.id !== guildConfig.ticketChannel)
-        return interaction.reply({ content: "Use this command in the ticket channel only.", ephemeral: true });
-
-      // Cooldown (10 seconds)
-      if (!client.ticketCooldowns) client.ticketCooldowns = new Map();
-
-      const now = Date.now();
-      const cooldown = 10000;
-
-      if (client.ticketCooldowns.has(interaction.user.id)) {
-        const expiration = client.ticketCooldowns.get(interaction.user.id) + cooldown;
-        if (now < expiration) {
-          return interaction.reply({ content: "Please wait before using this again.", ephemeral: true });
-        }
-      }
-
-      client.ticketCooldowns.set(interaction.user.id, now);
-
-      const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder()
-          .setCustomId('create_ticket')
-          .setLabel('Open Ticket')
-          .setStyle(ButtonStyle.Primary)
-      );
-
-      const reply = await interaction.reply({
-        content: "Need help? Click below to open a ticket.",
-        components: [row],
-        fetchReply: true
-      });
-
-      // Auto delete panel after 15s
-      setTimeout(() => reply.delete().catch(() => {}), 15000);
-    }
+    return interaction.reply({
+      content: `Ticket transcript log set to ${interaction.channel}`,
+      ephemeral: true
+    });
   }
 
   // =====================
-  // BUTTON HANDLER
+  // SET MOD LOG
+  // =====================
+  if (interaction.commandName === 'setlog') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+      return interaction.reply({ content: 'Admin only.', ephemeral: true });
+
+    config[interaction.guild.id].modLogChannel = interaction.channel.id;
+    saveConfig();
+
+    return interaction.reply({
+      content: `Moderation log set to ${interaction.channel}`,
+      ephemeral: true
+    });
+  }
+
+  // =====================
+  // TICKET PANEL
+  // =====================
+  if (interaction.commandName === 'ticket') {
+
+    const row = new ActionRowBuilder().addComponents(
+      new ButtonBuilder()
+        .setCustomId('create_ticket')
+        .setLabel('Open Ticket')
+        .setStyle(ButtonStyle.Primary)
+    );
+
+    return interaction.reply({
+      content: "Need help? Click below.",
+      components: [row]
+    });
+  }
+
+  // =====================
+  // BUTTONS
   // =====================
   if (interaction.isButton()) {
 
     const { customId, guild, user, channel } = interaction;
-
-    const guildConfig = config[guild.id];
-    if (!guildConfig) return;
-
-    const logChannel = guild.channels.cache.get(guildConfig.logChannel);
 
     // CREATE TICKET
     if (customId === 'create_ticket') {
@@ -182,7 +146,7 @@ client.on('interactionCreate', async interaction => {
           .setStyle(ButtonStyle.Danger)
       );
 
-      await ticketChannel.send({ content: `Welcome <@${user.id}> 👋`, components: [row] });
+      await ticketChannel.send({ content: `Welcome <@${user.id}>`, components: [row] });
 
       return interaction.reply({ content: `Ticket created: ${ticketChannel}`, ephemeral: true });
     }
@@ -198,7 +162,6 @@ client.on('interactionCreate', async interaction => {
       while (true) {
         const options = { limit: 100 };
         if (lastId) options.before = lastId;
-
         const messages = await channel.messages.fetch(options);
         if (messages.size === 0) break;
 
@@ -210,27 +173,14 @@ client.on('interactionCreate', async interaction => {
 
       let transcript = `Ticket: ${channel.name}\nClosed by: ${user.tag}\n\n`;
 
-      const participants = new Map();
-      for (const msg of allMessages) {
-        if (!msg.author.bot) {
-          participants.set(msg.author.tag, (participants.get(msg.author.tag) || 0) + 1);
-        }
-      }
-
-      transcript += "Participants:\n";
-      participants.forEach((count, tag) => {
-        transcript += `- ${tag} (${count} messages)\n`;
-      });
-
-      transcript += "\n============================\n\n";
-
       for (const msg of allMessages) {
         transcript += `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}\n`;
       }
 
+      const logChannel = guild.channels.cache.get(config[guild.id].ticketLogChannel);
+
       if (logChannel) {
         await logChannel.send({
-          content: `Transcript for ${channel.name}`,
           files: [{ attachment: Buffer.from(transcript), name: `transcript-${channel.name}.txt` }]
         });
       }
@@ -241,40 +191,122 @@ client.on('interactionCreate', async interaction => {
 });
 
 // =====================
-// MESSAGE DELETE LOG
+// AUTO CREATE MOD LOG IF NOT SET
 // =====================
-client.on('messageDelete', message => {
-  if (!message.guild) return;
-  const guildConfig = config[message.guild.id];
-  if (!guildConfig) return;
+async function getModLogChannel(guild) {
+  if (!config[guild.id]) config[guild.id] = {};
 
-  const logChannel = message.guild.channels.cache.get(guildConfig.logChannel);
-  if (!logChannel) return;
+  if (!config[guild.id].modLogChannel) {
+    let logChannel = guild.channels.cache.find(c => c.name === 'mod-logs');
+    if (!logChannel) {
+      logChannel = await guild.channels.create({
+        name: 'mod-logs',
+        type: ChannelType.GuildText
+      });
+    }
+    config[guild.id].modLogChannel = logChannel.id;
+    saveConfig();
+  }
 
-  logChannel.send(`🗑 ${message.author?.tag} deleted message in #${message.channel.name}: ${message.content}`);
+  return guild.channels.cache.get(config[guild.id].modLogChannel);
+}
+
+// =====================
+// MESSAGE DELETE
+// =====================
+client.on('messageDelete', async message => {
+  if (!message.guild || message.author?.bot) return;
+
+  const logChannel = await getModLogChannel(message.guild);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Message Deleted')
+    .setColor(0xff0000)
+    .addFields(
+      { name: 'User', value: message.author.tag, inline: true },
+      { name: 'Channel', value: `#${message.channel.name}`, inline: true },
+      { name: 'Content', value: message.content || 'None' }
+    )
+    .setTimestamp();
+
+  logChannel.send({ embeds: [embed] });
+});
+
+// =====================
+// MESSAGE EDIT
+// =====================
+client.on('messageUpdate', async (oldMsg, newMsg) => {
+  if (!oldMsg.guild || oldMsg.author?.bot) return;
+  if (oldMsg.content === newMsg.content) return;
+
+  const logChannel = await getModLogChannel(oldMsg.guild);
+
+  const embed = new EmbedBuilder()
+    .setTitle('Message Edited')
+    .setColor(0xffff00)
+    .addFields(
+      { name: 'User', value: oldMsg.author.tag, inline: true },
+      { name: 'Channel', value: `#${oldMsg.channel.name}`, inline: true },
+      { name: 'Before', value: oldMsg.content || 'None' },
+      { name: 'After', value: newMsg.content || 'None' }
+    )
+    .setTimestamp();
+
+  logChannel.send({ embeds: [embed] });
+});
+
+// =====================
+// MEMBER JOIN/LEAVE
+// =====================
+client.on('guildMemberAdd', async member => {
+  const logChannel = await getModLogChannel(member.guild);
+  logChannel.send(`Member Joined: ${member.user.tag}`);
+});
+
+client.on('guildMemberRemove', async member => {
+  const logChannel = await getModLogChannel(member.guild);
+  logChannel.send(`Member Left: ${member.user.tag}`);
+});
+
+// =====================
+// BAN LOG
+// =====================
+client.on('guildBanAdd', async ban => {
+  const logChannel = await getModLogChannel(ban.guild);
+  logChannel.send(`User Banned: ${ban.user.tag}`);
+});
+
+// =====================
+// ROLE UPDATE
+// =====================
+client.on('guildMemberUpdate', async (oldMember, newMember) => {
+  const logChannel = await getModLogChannel(newMember.guild);
+
+  const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
+  const removedRoles = oldMember.roles.cache.filter(role => !newMember.roles.cache.has(role.id));
+
+  if (addedRoles.size > 0)
+    logChannel.send(`${newMember.user.tag} gained roles: ${addedRoles.map(r => r.name).join(', ')}`);
+
+  if (removedRoles.size > 0)
+    logChannel.send(`${newMember.user.tag} lost roles: ${removedRoles.map(r => r.name).join(', ')}`);
 });
 
 // =====================
 // VOICE LOG
 // =====================
-client.on('voiceStateUpdate', (oldState, newState) => {
-  if (!newState.guild) return;
-  const guildConfig = config[newState.guild.id];
-  if (!guildConfig) return;
-
-  const logChannel = newState.guild.channels.cache.get(guildConfig.logChannel);
-  if (!logChannel) return;
-
+client.on('voiceStateUpdate', async (oldState, newState) => {
+  const logChannel = await getModLogChannel(newState.guild);
   const member = newState.member;
 
   if (!oldState.channel && newState.channel)
-    logChannel.send(`🎤 ${member.user.tag} joined ${newState.channel.name}`);
+    logChannel.send(`${member.user.tag} joined VC: ${newState.channel.name}`);
 
   if (oldState.channel && !newState.channel)
-    logChannel.send(`📤 ${member.user.tag} left ${oldState.channel.name}`);
+    logChannel.send(`${member.user.tag} left VC: ${oldState.channel.name}`);
 
   if (oldState.channel && newState.channel && oldState.channel.id !== newState.channel.id)
-    logChannel.send(`🔁 ${member.user.tag} moved ${oldState.channel.name} → ${newState.channel.name}`);
+    logChannel.send(`${member.user.tag} moved VC: ${oldState.channel.name} → ${newState.channel.name}`);
 });
 
 client.login(process.env.DISCORD_TOKEN);
