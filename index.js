@@ -9,8 +9,7 @@ const {
   ButtonBuilder,
   ButtonStyle,
   ChannelType,
-  PermissionsBitField,
-  AuditLogEvent
+  PermissionsBitField
 } = require('discord.js');
 
 const fs = require('fs');
@@ -20,8 +19,8 @@ const client = new Client({
     GatewayIntentBits.Guilds,
     GatewayIntentBits.GuildMessages,
     GatewayIntentBits.MessageContent,
-    GatewayIntentBits.GuildVoiceStates,
-    GatewayIntentBits.GuildMembers
+    GatewayIntentBits.GuildMembers,
+    GatewayIntentBits.GuildVoiceStates
   ]
 });
 
@@ -43,12 +42,20 @@ const commands = [
     .setDescription('Send ticket panel'),
 
   new SlashCommandBuilder()
+    .setName('setlog')
+    .setDescription('Set moderation log channel (Admin only)'),
+
+  new SlashCommandBuilder()
+    .setName('undolog')
+    .setDescription('Undo moderation log channel (Admin only)'),
+
+  new SlashCommandBuilder()
     .setName('setticketlog')
     .setDescription('Set ticket transcript log channel (Admin only)'),
 
   new SlashCommandBuilder()
-    .setName('setlog')
-    .setDescription('Set moderation log channel (Admin only)')
+    .setName('undoticketlog')
+    .setDescription('Undo ticket transcript log channel (Admin only)')
 ].map(c => c.toJSON());
 
 client.once('ready', async () => {
@@ -66,25 +73,7 @@ client.on('interactionCreate', async interaction => {
   if (!config[interaction.guild.id])
     config[interaction.guild.id] = {};
 
-  // =====================
-  // SET TICKET LOG
-  // =====================
-  if (interaction.commandName === 'setticketlog') {
-    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
-      return interaction.reply({ content: 'Admin only.', ephemeral: true });
-
-    config[interaction.guild.id].ticketLogChannel = interaction.channel.id;
-    saveConfig();
-
-    return interaction.reply({
-      content: `Ticket transcript log set to ${interaction.channel}`,
-      ephemeral: true
-    });
-  }
-
-  // =====================
   // SET MOD LOG
-  // =====================
   if (interaction.commandName === 'setlog') {
     if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
       return interaction.reply({ content: 'Admin only.', ephemeral: true });
@@ -92,17 +81,44 @@ client.on('interactionCreate', async interaction => {
     config[interaction.guild.id].modLogChannel = interaction.channel.id;
     saveConfig();
 
-    return interaction.reply({
-      content: `Moderation log set to ${interaction.channel}`,
-      ephemeral: true
-    });
+    return interaction.reply({ content: `Moderation log set to ${interaction.channel}`, ephemeral: true });
   }
 
-  // =====================
-  // TICKET PANEL
-  // =====================
-  if (interaction.commandName === 'ticket') {
+  // UNDO MOD LOG
+  if (interaction.commandName === 'undolog') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+      return interaction.reply({ content: 'Admin only.', ephemeral: true });
 
+    delete config[interaction.guild.id].modLogChannel;
+    saveConfig();
+
+    return interaction.reply({ content: `Moderation log removed.`, ephemeral: true });
+  }
+
+  // SET TICKET LOG
+  if (interaction.commandName === 'setticketlog') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+      return interaction.reply({ content: 'Admin only.', ephemeral: true });
+
+    config[interaction.guild.id].ticketLogChannel = interaction.channel.id;
+    saveConfig();
+
+    return interaction.reply({ content: `Ticket transcript log set to ${interaction.channel}`, ephemeral: true });
+  }
+
+  // UNDO TICKET LOG
+  if (interaction.commandName === 'undoticketlog') {
+    if (!interaction.member.permissions.has(PermissionsBitField.Flags.Administrator))
+      return interaction.reply({ content: 'Admin only.', ephemeral: true });
+
+    delete config[interaction.guild.id].ticketLogChannel;
+    saveConfig();
+
+    return interaction.reply({ content: `Ticket transcript log removed.`, ephemeral: true });
+  }
+
+  // TICKET PANEL
+  if (interaction.commandName === 'ticket') {
     const row = new ActionRowBuilder().addComponents(
       new ButtonBuilder()
         .setCustomId('create_ticket')
@@ -116,14 +132,11 @@ client.on('interactionCreate', async interaction => {
     });
   }
 
-  // =====================
   // BUTTONS
-  // =====================
   if (interaction.isButton()) {
 
     const { customId, guild, user, channel } = interaction;
 
-    // CREATE TICKET
     if (customId === 'create_ticket') {
 
       const existing = guild.channels.cache.find(c => c.name === `ticket-${user.id}`);
@@ -151,7 +164,6 @@ client.on('interactionCreate', async interaction => {
       return interaction.reply({ content: `Ticket created: ${ticketChannel}`, ephemeral: true });
     }
 
-    // CLOSE TICKET
     if (customId === 'close_ticket') {
 
       await interaction.update({ content: "Generating transcript...", components: [] });
@@ -162,6 +174,7 @@ client.on('interactionCreate', async interaction => {
       while (true) {
         const options = { limit: 100 };
         if (lastId) options.before = lastId;
+
         const messages = await channel.messages.fetch(options);
         if (messages.size === 0) break;
 
@@ -177,8 +190,7 @@ client.on('interactionCreate', async interaction => {
         transcript += `[${new Date(msg.createdTimestamp).toLocaleString()}] ${msg.author.tag}: ${msg.content}\n`;
       }
 
-      const logChannel = guild.channels.cache.get(config[guild.id].ticketLogChannel);
-
+      const logChannel = guild.channels.cache.get(config[guild.id]?.ticketLogChannel);
       if (logChannel) {
         await logChannel.send({
           files: [{ attachment: Buffer.from(transcript), name: `transcript-${channel.name}.txt` }]
@@ -191,33 +203,45 @@ client.on('interactionCreate', async interaction => {
 });
 
 // =====================
-// AUTO CREATE MOD LOG IF NOT SET
+// HELPER
 // =====================
-async function getModLogChannel(guild) {
-  if (!config[guild.id]) config[guild.id] = {};
-
-  if (!config[guild.id].modLogChannel) {
-    let logChannel = guild.channels.cache.find(c => c.name === 'mod-logs');
-    if (!logChannel) {
-      logChannel = await guild.channels.create({
-        name: 'mod-logs',
-        type: ChannelType.GuildText
-      });
-    }
-    config[guild.id].modLogChannel = logChannel.id;
-    saveConfig();
-  }
+function getModLogChannel(guild) {
+  if (!config[guild.id]) return null;
+  if (!config[guild.id].modLogChannel) return null;
 
   return guild.channels.cache.get(config[guild.id].modLogChannel);
 }
 
 // =====================
+// MESSAGE CREATE
+// =====================
+client.on('messageCreate', message => {
+  if (!message.guild || message.author.bot) return;
+
+  const logChannel = getModLogChannel(message.guild);
+  if (!logChannel) return;
+
+  const embed = new EmbedBuilder()
+    .setTitle('Message Sent')
+    .setColor(0x00ff00)
+    .addFields(
+      { name: 'User', value: message.author.tag, inline: true },
+      { name: 'Channel', value: `#${message.channel.name}`, inline: true },
+      { name: 'Content', value: message.content || 'None' }
+    )
+    .setTimestamp();
+
+  logChannel.send({ embeds: [embed] });
+});
+
+// =====================
 // MESSAGE DELETE
 // =====================
-client.on('messageDelete', async message => {
+client.on('messageDelete', message => {
   if (!message.guild || message.author?.bot) return;
 
-  const logChannel = await getModLogChannel(message.guild);
+  const logChannel = getModLogChannel(message.guild);
+  if (!logChannel) return;
 
   const embed = new EmbedBuilder()
     .setTitle('Message Deleted')
@@ -235,11 +259,12 @@ client.on('messageDelete', async message => {
 // =====================
 // MESSAGE EDIT
 // =====================
-client.on('messageUpdate', async (oldMsg, newMsg) => {
+client.on('messageUpdate', (oldMsg, newMsg) => {
   if (!oldMsg.guild || oldMsg.author?.bot) return;
   if (oldMsg.content === newMsg.content) return;
 
-  const logChannel = await getModLogChannel(oldMsg.guild);
+  const logChannel = getModLogChannel(oldMsg.guild);
+  if (!logChannel) return;
 
   const embed = new EmbedBuilder()
     .setTitle('Message Edited')
@@ -258,45 +283,42 @@ client.on('messageUpdate', async (oldMsg, newMsg) => {
 // =====================
 // MEMBER JOIN/LEAVE
 // =====================
-client.on('guildMemberAdd', async member => {
-  const logChannel = await getModLogChannel(member.guild);
+client.on('guildMemberAdd', member => {
+  const logChannel = getModLogChannel(member.guild);
+  if (!logChannel) return;
   logChannel.send(`Member Joined: ${member.user.tag}`);
 });
 
-client.on('guildMemberRemove', async member => {
-  const logChannel = await getModLogChannel(member.guild);
+client.on('guildMemberRemove', member => {
+  const logChannel = getModLogChannel(member.guild);
+  if (!logChannel) return;
   logChannel.send(`Member Left: ${member.user.tag}`);
-});
-
-// =====================
-// BAN LOG
-// =====================
-client.on('guildBanAdd', async ban => {
-  const logChannel = await getModLogChannel(ban.guild);
-  logChannel.send(`User Banned: ${ban.user.tag}`);
 });
 
 // =====================
 // ROLE UPDATE
 // =====================
-client.on('guildMemberUpdate', async (oldMember, newMember) => {
-  const logChannel = await getModLogChannel(newMember.guild);
+client.on('guildMemberUpdate', (oldMember, newMember) => {
+  const logChannel = getModLogChannel(newMember.guild);
+  if (!logChannel) return;
 
-  const addedRoles = newMember.roles.cache.filter(role => !oldMember.roles.cache.has(role.id));
-  const removedRoles = oldMember.roles.cache.filter(role => !newMember.roles.cache.has(role.id));
+  const added = newMember.roles.cache.filter(r => !oldMember.roles.cache.has(r.id));
+  const removed = oldMember.roles.cache.filter(r => !newMember.roles.cache.has(r.id));
 
-  if (addedRoles.size > 0)
-    logChannel.send(`${newMember.user.tag} gained roles: ${addedRoles.map(r => r.name).join(', ')}`);
+  if (added.size > 0)
+    logChannel.send(`${newMember.user.tag} gained roles: ${added.map(r => r.name).join(', ')}`);
 
-  if (removedRoles.size > 0)
-    logChannel.send(`${newMember.user.tag} lost roles: ${removedRoles.map(r => r.name).join(', ')}`);
+  if (removed.size > 0)
+    logChannel.send(`${newMember.user.tag} lost roles: ${removed.map(r => r.name).join(', ')}`);
 });
 
 // =====================
 // VOICE LOG
 // =====================
-client.on('voiceStateUpdate', async (oldState, newState) => {
-  const logChannel = await getModLogChannel(newState.guild);
+client.on('voiceStateUpdate', (oldState, newState) => {
+  const logChannel = getModLogChannel(newState.guild);
+  if (!logChannel) return;
+
   const member = newState.member;
 
   if (!oldState.channel && newState.channel)
