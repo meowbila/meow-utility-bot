@@ -213,28 +213,6 @@ function getModLogChannel(guild) {
 }
 
 // =====================
-// MESSAGE CREATE
-// =====================
-client.on('messageCreate', message => {
-  if (!message.guild || message.author.bot) return;
-
-  const logChannel = getModLogChannel(message.guild);
-  if (!logChannel) return;
-
-  const embed = new EmbedBuilder()
-    .setTitle('Message Sent')
-    .setColor(0x00ff00)
-    .addFields(
-      { name: 'User', value: message.author.tag, inline: true },
-      { name: 'Channel', value: `#${message.channel.name}`, inline: true },
-      { name: 'Content', value: message.content || 'None' }
-    )
-    .setTimestamp();
-
-  logChannel.send({ embeds: [embed] });
-});
-
-// =====================
 // MESSAGE DELETE
 // =====================
 client.on('messageDelete', message => {
